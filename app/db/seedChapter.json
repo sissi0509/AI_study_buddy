@@ -1,0 +1,32 @@
+[
+  {
+    "name": "Mechanics",
+    "description": "Motion, forces, energy, momentum, and Newtonian laws.",
+    "subject": "Physics",
+    "order": 1
+  },
+  {
+    "name": "Deformation",
+    "description": "Stress, strain, Young’s modulus, elastic and plastic deformation.",
+    "subject": "Physics",
+    "order": 2
+  },
+  {
+    "name": "Thermal",
+    "description": "Temperature, heat transfer, specific heat capacity, phase changes, and ideal gases.",
+    "subject": "Physics",
+    "order": 3
+  },
+  {
+    "name": "Waves",
+    "description": "Wave properties, wave equations, sound waves, and superposition.",
+    "subject": "Physics",
+    "order": 4
+  },
+  {
+    "name": "Electricity",
+    "description": "Charge, electric fields, circuits, potential difference, and resistance.",
+    "subject": "Physics",
+    "order": 5
+  }
+]

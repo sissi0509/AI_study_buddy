@@ -1,11 +1,17 @@
-// app/db/Topics.ts
-import mongoose, { Schema, models, model } from "mongoose";
+import { Schema, models, model } from "mongoose";
 
 const TopicSchema = new Schema(
   {
-    name: { type: String, required: true }, // "Forces & Newton's Laws"
-    description: { type: String, required: true }, // short explanation
-    subject: { type: String, default: "Physics" }, // optional, for future
+    name: { type: String, required: true },
+    description: { type: String, required: true },
+    steps: [String],
+    subject: { type: String, default: "Physics" },
+    systemPrompt: { type: String },
+    chapter: {
+      type: Schema.Types.ObjectId,
+      ref: "Chapter",
+      required: false,
+    },
   },
   { timestamps: true }
 );
