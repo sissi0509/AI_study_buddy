@@ -12,7 +12,8 @@
       "Write Newton's second law (ΣF = ma) along each axis.",
       "Use kinematic equations to find acceleration if needed.",
       "Solve for the unknowns and don't forget to check your units."
-    ]
+    ],
+    "chapter": "693a3eeeacdadf37a9c3b1c4"
   },
   {
     "name": "1D Kinematics",
@@ -27,6 +28,7 @@
       "Substitute values and solve.",
       "Check if the result is physically reasonable.",
       "Include units in your final answer."
-    ]
+    ],
+    "chapter": "693a3eeeacdadf37a9c3b1c4"
   }
 ]

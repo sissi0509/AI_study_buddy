@@ -83,9 +83,7 @@ export default function StudentChaptersPage() {
         ))}
 
         {chapters.length === 0 && (
-          <p className="text-sm text-slate-500">
-            No chapters found. You can add chapters in MongoDB Compass.
-          </p>
+          <p className="text-sm text-slate-500">No chapters found.</p>
         )}
       </section>
     </main>

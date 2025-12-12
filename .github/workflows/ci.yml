@@ -1,0 +1,35 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+      - master
+      - dev
+  pull_request:
+
+jobs:
+  build-and-lint:
+    runs-on: ubuntu-latest
+
+    env:
+      DATABASE_CONNECTION_STRING: ${{ secrets.DATABASE_CONNECTION_STRING }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22" # or '20' if your project uses Node 20
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Build
+        run: npm run build
