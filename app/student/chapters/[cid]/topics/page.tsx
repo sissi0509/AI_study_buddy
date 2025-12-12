@@ -25,6 +25,7 @@ export default function StudentTopicsPage() {
         const data = await res.json();
         setTopics(data.topics || []);
       } catch (err) {
+        console.error("Failed to fetch topics:", err);
         setError("Failed to load topics. Please try again later.");
       } finally {
         setLoading(false);
