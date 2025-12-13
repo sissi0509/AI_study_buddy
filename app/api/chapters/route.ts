@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { connectToDb } from "@/app/db/mongoose";
-import Chapter from "@/app/db/Chapter";
+import Chapter from "@/app/db/Chapters";
 
 export async function GET() {
   try {

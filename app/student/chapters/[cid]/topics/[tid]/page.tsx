@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useEffect, useState } from "react";
 
@@ -12,19 +13,55 @@ export default function TopicChatPage() {
   const { cid, tid } = useParams<{ cid: string; tid: string }>();
 
   const [topic, setTopic] = useState<any>(null);
+  const [chapter, setChapter] = useState<any>(null);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
+  const [user, setUser] = useState<any>(null);
   const [error, setError] = useState<string | null>(null);
 
-  // Load topic info (title, description, maybe system prompt)
+  // useEffect(() => {
+  //   const fetchChapter = async () => {
+  //     try {
+  //       const res = await fetch(`/api/chapters/${cid}`);
+  //       if (!res.ok) throw new Error("Failed to load chapter");
+  //       const data = await res.json();
+  //       setChapter(data.chapter);
+  //     } catch (e: any) {
+  //       setError(e.message || "Failed to load chapter");
+  //     }
+  //   };
+
+  //   if (cid) fetchChapter();
+  // }, [cid]);
+
+  useEffect(() => {
+    async function getOrCreateStudentUser() {
+      const key = "userId";
+      let userId = localStorage.getItem(key);
+
+      const res = await fetch("/api/users/student", {
+        method: "POST",
+        headers: userId ? { "x-user-id": userId } : {},
+      });
+
+      const data = await res.json();
+      userId = data.userId;
+
+      localStorage.setItem(key, userId || "");
+      setUser(data);
+    }
+    getOrCreateStudentUser();
+  }, []);
+
   useEffect(() => {
     const fetchTopic = async () => {
       try {
-        const res = await fetch(`/api/topics/${tid}`);
+        const res = await fetch(`/api/topics/${tid}?include=chapter`);
         if (!res.ok) throw new Error("Failed to load topic");
         const data = await res.json();
         setTopic(data.topic);
+        setChapter(data.chapter);
       } catch (e: any) {
         setError(e.message || "Failed to load topic");
       }
@@ -37,6 +74,11 @@ export default function TopicChatPage() {
     const trimmed = input.trim();
     if (!trimmed) return;
 
+    if (!user?.userId) {
+      setError("User not ready yet. Please try again in a moment.");
+      return;
+    }
+
     const newMessages = [...messages, { role: "user", content: trimmed }];
     setMessages(newMessages);
     setInput("");
@@ -46,16 +88,16 @@ export default function TopicChatPage() {
     try {
       const res = await fetch(`/api/topics/${tid}/chat`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          "x-user-id": user.userId,
+        },
         body: JSON.stringify({ messages: newMessages }),
       });
 
-      if (!res.ok) {
-        throw new Error("Failed to get an answer from the tutor");
-      }
+      if (!res.ok) throw new Error("Failed to get an answer from the tutor");
 
       const data = await res.json();
-
       setMessages([...newMessages, { role: "assistant", content: data.reply }]);
     } catch (e: any) {
       setError(e.message || "Something went wrong");
@@ -68,8 +110,14 @@ export default function TopicChatPage() {
     <div className="flex flex-col h-[calc(100vh-80px)] max-w-3xl mx-auto pt-4">
       <div className="mb-3">
         <p className="text-xs text-gray-400 mb-1">
-          Chapter: {cid} · Topic: {tid}
+          Chapter: {chapter?.name || "Unknown Chapter"}
         </p>
+        <Link
+          href={`/student/chapters/${cid}/topics`}
+          className="text-xs text-blue-600 underline"
+        >
+          ← Back to chapters
+        </Link>
         <h1 className="text-2xl font-semibold">
           {topic?.name || "Topic chat"}
         </h1>
@@ -81,7 +129,7 @@ export default function TopicChatPage() {
       <div className="flex-1 border rounded-md p-3 overflow-y-auto bg-white">
         {messages.length === 0 && (
           <p className="text-sm text-gray-400">
-            Ask your first question about {topic?.title ?? "this topic"}…
+            Ask your first question about {topic?.name ?? "this topic"}…
           </p>
         )}
 
@@ -110,7 +158,7 @@ export default function TopicChatPage() {
           rows={2}
           className="flex-1 border rounded-md p-2 text-sm"
           placeholder={
-            topic ? `Ask a question about "${topic.title}"…` : "Ask a question…"
+            topic ? `Ask a question about "${topic.name}"…` : "Ask a question…"
           }
           value={input}
           onChange={(e) => setInput(e.target.value)}

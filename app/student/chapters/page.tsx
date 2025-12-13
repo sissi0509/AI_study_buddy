@@ -65,7 +65,7 @@ export default function StudentChaptersPage() {
         {chapters.map((chapter) => (
           <Link
             key={chapter.id}
-            href={`/student/chapters/${chapter.id}`}
+            href={`/student/chapters/${chapter.id}/topics`}
             className="group border bg-white rounded-xl p-4 shadow-sm hover:shadow-md hover:-translate-y-0.5 transition-all flex flex-col justify-between"
           >
             <div>

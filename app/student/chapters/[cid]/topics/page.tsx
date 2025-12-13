@@ -1,7 +1,7 @@
-// app/student/topics/page.tsx
 "use client";
 
 import { useEffect, useState } from "react";
+import { useParams } from "next/navigation";
 import Link from "next/link";
 
 type Topic = {
@@ -10,22 +10,25 @@ type Topic = {
   description: string;
 };
 
-export default function StudentTopicsPage() {
+export default function ChapterTopicsPage() {
+  const { cid } = useParams<{ cid: string }>();
   const [topics, setTopics] = useState<Topic[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
+    if (!cid) return;
+
     const fetchTopics = async () => {
       try {
-        const res = await fetch("/api/topics");
+        const res = await fetch(`/api/chapters/${cid}/topics`);
         if (!res.ok) {
-          throw new Error("Failed to fetch topics");
+          throw new Error("Failed to fetch topics for this chapter");
         }
         const data = await res.json();
         setTopics(data.topics || []);
       } catch (err) {
-        console.error("Failed to fetch topics:", err);
+        console.error(err);
         setError("Failed to load topics. Please try again later.");
       } finally {
         setLoading(false);
@@ -33,7 +36,7 @@ export default function StudentTopicsPage() {
     };
 
     fetchTopics();
-  }, []);
+  }, [cid]);
 
   if (loading) {
     return (
@@ -45,48 +48,48 @@ export default function StudentTopicsPage() {
 
   if (error) {
     return (
-      <main className="min-h-screen flex items-center justify-center">
+      <main className="min-h-screen flex flex-col items-center justify-center gap-3">
         <p className="text-sm text-red-600">{error}</p>
+        <Link
+          href="/student/chapters"
+          className="text-xs text-blue-600 underline"
+        >
+          Back to chapters
+        </Link>
       </main>
     );
   }
 
   return (
     <main className="min-h-screen px-4 py-8 md:px-10 lg:px-16 bg-slate-50">
-      <header className="mb-6">
-        <h1 className="text-2xl md:text-3xl font-bold mb-2">
-          Physics AI Tutor
-        </h1>
-        <p className="text-sm md:text-base text-slate-600">
-          Choose a topic to start a guided tutoring session.
-        </p>
+      <header className="mb-4 flex items-center justify-between gap-3">
+        <h1 className="text-2xl font-bold">Topics in this chapter</h1>
+        <Link
+          href="/student/chapters"
+          className="text-xs text-blue-600 underline"
+        >
+          ← Back to chapters
+        </Link>
       </header>
 
-      <section className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-        {topics.map((topic) => (
-          <Link
-            key={topic.id}
-            href={`/student/topics/${topic.id}`}
-            className="group border bg-white rounded-xl p-4 shadow-sm hover:shadow-md hover:-translate-y-0.5 transition-all flex flex-col justify-between"
-          >
-            <div>
-              <h2 className="font-semibold text-lg mb-1 group-hover:text-blue-600">
-                {topic.name}
-              </h2>
+      {topics.length === 0 ? (
+        <p className="text-sm text-slate-500">
+          No topics found for this chapter.
+        </p>
+      ) : (
+        <section className="space-y-3">
+          {topics.map((topic) => (
+            <Link
+              key={topic.id}
+              href={`/student/chapters/${cid}/topics/${topic.id}`}
+              className="block border bg-white rounded-xl p-4 shadow-sm hover:shadow-md hover:-translate-y-0.5 transition-all"
+            >
+              <h2 className="font-semibold text-lg mb-1">{topic.name}</h2>
               <p className="text-sm text-slate-700">{topic.description}</p>
-            </div>
-            <span className="mt-3 inline-block text-xs font-medium text-blue-600 group-hover:underline">
-              Start tutoring →
-            </span>
-          </Link>
-        ))}
-
-        {topics.length === 0 && (
-          <p className="text-sm text-slate-500">
-            No topics found. You can add topics in MongoDB Compass.
-          </p>
-        )}
-      </section>
+            </Link>
+          ))}
+        </section>
+      )}
     </main>
   );
 }

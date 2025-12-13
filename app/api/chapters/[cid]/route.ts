@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
-import mongoose from "mongoose";
 import { connectToDb } from "@/app/db/mongoose";
-import Topic from "@/app/db/Topics";
+import Chapter from "@/app/db/Chapters";
+import mongoose from "mongoose";
 
 export async function GET(
   request: Request,
@@ -12,7 +12,6 @@ export async function GET(
 
     const { cid } = await params;
 
-    // Validate chapter id
     if (!mongoose.Types.ObjectId.isValid(cid)) {
       return NextResponse.json(
         { error: "Invalid chapter id" },
@@ -20,20 +19,24 @@ export async function GET(
       );
     }
 
-    // Find topics under this chapter
-    const docs = await Topic.find({ chapter: cid }).lean();
+    const doc = await Chapter.findById(cid).lean();
 
-    const topics = docs.map((doc: any) => ({
+    if (!doc) {
+      return NextResponse.json({ error: "Chapter not found" }, { status: 404 });
+    }
+
+    const chapter = {
       id: doc._id.toString(),
       name: doc.name,
       description: doc.description,
-    }));
+      // add other fields you want to expose
+    };
 
-    return NextResponse.json({ topics });
+    return NextResponse.json({ chapter });
   } catch (err) {
-    console.error("Error fetching topics for chapter:", err);
+    console.error("Error fetching chapter:", err);
     return NextResponse.json(
-      { error: "Failed to load topics" },
+      { error: "Failed to load chapter" },
       { status: 500 }
     );
   }
