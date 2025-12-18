@@ -72,7 +72,7 @@ export async function GET(
   }
 }
 
-export async function PATCH(req: Request, { params }: Params) {
+export async function PATCH(req: Request, { params }: Context) {
   await connectToDb();
   const updates = await req.json();
   const topic = await Topic.findByIdAndUpdate(params.tid, updates, {
@@ -84,9 +84,27 @@ export async function PATCH(req: Request, { params }: Params) {
   return NextResponse.json({ topic });
 }
 
-export async function DELETE(_req: Request, context: Context) {
-  await connectToDb();
-  const { tid } = await context.params;
-  await Topic.findByIdAndDelete(tid);
-  return NextResponse.json({ ok: true });
+export async function DELETE(req: Request, { params }: Context) {
+  try {
+    await connectToDb();
+    const { tid } = await params;
+
+    // Validate ObjectId
+    if (!mongoose.Types.ObjectId.isValid(tid)) {
+      return NextResponse.json({ error: "Invalid topic id" }, { status: 400 });
+    }
+
+    const deleted = await Topic.findByIdAndDelete(tid);
+
+    if (!deleted) {
+      return NextResponse.json({ error: "Topic not found" }, { status: 404 });
+    }
+
+    return NextResponse.json({ ok: true });
+  } catch (err) {
+    return NextResponse.json(
+      { error: "Failed to delete topic", err },
+      { status: 500 }
+    );
+  }
 }

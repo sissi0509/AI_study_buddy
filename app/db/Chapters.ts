@@ -5,7 +5,7 @@ const ChapterSchema = new Schema(
     name: { type: String, required: true },
     description: { type: String },
     subject: { type: String, default: "Physics" },
-    order: { type: Number },
+    // order: { type: Number },
   },
   { timestamps: true }
 );
