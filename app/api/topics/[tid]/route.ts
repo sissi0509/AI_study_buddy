@@ -75,7 +75,8 @@ export async function GET(
 export async function PATCH(req: Request, { params }: Context) {
   await connectToDb();
   const updates = await req.json();
-  const topic = await Topic.findByIdAndUpdate(params.tid, updates, {
+  const { tid } = await params;
+  const topic = await Topic.findByIdAndUpdate(tid, updates, {
     new: true,
   }).lean();
   if (!topic) {
