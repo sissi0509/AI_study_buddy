@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { FiTrash2 } from "react-icons/fi";
 
@@ -56,20 +56,18 @@ export default function TeacherChapterWorkspacePage() {
   const [steps, setSteps] = useState<string[]>([""]);
   const [saving, setSaving] = useState(false);
 
-  async function fetchChapterAndTopics() {
+  const fetchChapterAndTopics = useCallback(async () => {
     if (!cid) return;
 
     try {
       setError("");
       setLoading(true);
 
-      // chapter
       const chRes = await fetch(`/api/chapters/${cid}`, { cache: "no-store" });
       const chData = await chRes.json().catch(() => ({}));
       if (!chRes.ok) throw new Error(chData?.error || "Failed to load chapter");
       setChapter(chData.chapter);
 
-      // topics
       const tRes = await fetch(`/api/chapters/${cid}/topics`, {
         cache: "no-store",
       });
@@ -81,11 +79,11 @@ export default function TeacherChapterWorkspacePage() {
     } finally {
       setLoading(false);
     }
-  }
+  }, [cid]);
 
   useEffect(() => {
     fetchChapterAndTopics();
-  }, [cid]);
+  }, [fetchChapterAndTopics]);
 
   function resetForm() {
     setEditingId(null);
@@ -228,13 +226,13 @@ export default function TeacherChapterWorkspacePage() {
         <section className="rounded-xl border bg-white p-4">
           <div className="flex items-center justify-between">
             <h2 className="text-lg font-semibold">Topics</h2>
-            <button
+            {/* <button
               onClick={fetchChapterAndTopics}
               className="rounded-md border px-3 py-1.5 text-sm hover:bg-gray-50 disabled:opacity-50"
               disabled={loading}
             >
               Refresh
-            </button>
+            </button> */}
           </div>
 
           <div className="mt-4">

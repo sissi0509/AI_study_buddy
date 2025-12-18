@@ -76,7 +76,7 @@ export async function DELETE(
     return NextResponse.json({ ok: true });
   } catch (err) {
     return NextResponse.json(
-      { error: "Failed to delete chapter" },
+      { error: "Failed to delete chapter", err },
       { status: 500 }
     );
   }
