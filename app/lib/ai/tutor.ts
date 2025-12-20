@@ -21,7 +21,9 @@ function buildTutorPrompt({
   const pedagogy = [
     systemPrompt?.trim(),
     steps && steps.length > 0
-      ? `Follow these steps when helping the student:\n` +
+      ? `Use the steps as guidance. If the student already demonstrated a step, or you think it is unnecessary, skip it. 
+      If the student is stuck, go back to an earlier step.
+       Always move toward the solution with minimal hints.:\n` +
         steps.map((s, i) => `${i + 1}. ${s}`).join("\n")
       : null,
   ]

@@ -10,7 +10,7 @@ export async function connectToDb() {
   const MONGODB_URI = process.env.DATABASE_CONNECTION_STRING as string;
 
   if (!MONGODB_URI) {
-    throw new Error("DATABASE_CONNECTION_STRING is missing in .env file");
+    throw new Error("DATABASE_CONNECTION_STRING is missing ");
   }
   if (cached.conn) return cached.conn;
 

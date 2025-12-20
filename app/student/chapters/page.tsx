@@ -52,13 +52,21 @@ export default function StudentChaptersPage() {
 
   return (
     <main className="min-h-screen px-4 py-8 md:px-10 lg:px-16 bg-slate-50">
-      <header className="mb-6">
-        <h1 className="text-2xl md:text-3xl font-bold mb-2">
-          Physics Chapters
-        </h1>
-        <p className="text-sm md:text-base text-slate-600">
-          Choose a chapter to see its topics and start tutoring.
-        </p>
+      <header className="flex items-end justify-between gap-3 mb-4">
+        <div>
+          <h1 className="text-2xl md:text-3xl font-bold mb-2">
+            Physics Chapters
+          </h1>
+          <p className="text-sm md:text-base text-slate-600">
+            Choose a chapter to see its topics and start tutoring.
+          </p>
+        </div>
+        <Link
+          href="/"
+          className="rounded-md border px-3 py-2 text-sm hover:bg-gray-50 disabled:opacity-50"
+        >
+          Back
+        </Link>
       </header>
 
       <section className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
