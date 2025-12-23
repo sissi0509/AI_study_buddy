@@ -1,19 +1,33 @@
+// api/topics/[tid]/chat/route.ts - COMPLETE VERSION
+
 import { NextResponse } from "next/server";
 import mongoose from "mongoose";
 import { connectToDb } from "@/app/db/mongoose";
 import Topic from "@/app/db/Topics";
 import User from "@/app/db/Users";
-import { generateTutorReply } from "@/app/lib/ai/tutor";
+import ChatSession from "@/app/db/ChatSessions";
+import {
+  generateTutorReply,
+  generateProblemProgressSummary,
+  refineLearningPatternSummary,
+} from "@/app/lib/ai/tutor";
 
-const MAX_MESSAGES = 100;
+// Configuration constants
+const SUMMARIZE_PROBLEM_EVERY = 15; // Summarize current problem every 15 messages
+const ANALYZE_PATTERNS_AFTER_PROBLEM = 25; // Refine patterns after 25 messages (long problem)
+const RECENT_MESSAGES_COUNT = 6; // Keep last 6 messages in context
+
 export async function POST(
   req: Request,
   { params }: { params: Promise<{ tid: string }> }
 ) {
   try {
+    // Connect to database
     await connectToDb();
 
-    // 1) Identify user (MVP identity via header)
+    // ==========================================
+    // 1) USER VALIDATION
+    // ==========================================
     const userId = req.headers.get("x-user-id");
     if (!userId || !mongoose.Types.ObjectId.isValid(userId)) {
       return NextResponse.json({ error: "Missing user" }, { status: 401 });
@@ -23,11 +37,13 @@ export async function POST(
     if (!user) {
       return NextResponse.json({ error: "User not found" }, { status: 401 });
     }
-    if (user.role !== "student") {
-      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-    }
+    // if (user.role !== "student") {
+    //   return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    // }
 
-    // 2) Topic
+    // ==========================================
+    // 2) TOPIC VALIDATION
+    // ==========================================
     const { tid } = await params;
     if (!mongoose.Types.ObjectId.isValid(tid)) {
       return NextResponse.json({ error: "Invalid topic id" }, { status: 400 });
@@ -38,39 +54,216 @@ export async function POST(
       return NextResponse.json({ error: "Topic not found" }, { status: 404 });
     }
 
-    // 3) Messages
+    // ==========================================
+    // 3) GET OR CREATE CHAT SESSION
+    // ==========================================
+    let session = await ChatSession.findOne({
+      userId: new mongoose.Types.ObjectId(userId),
+      topicId: new mongoose.Types.ObjectId(tid),
+    });
+
+    if (!session) {
+      session = await ChatSession.create({
+        userId,
+        topicId: tid,
+        messages: [],
+        currentProblemSummary: "",
+        currentProblemStartIndex: 0,
+        lastProblemSummarizedIndex: 0,
+        learningPatterns: "",
+        lastPatternsAnalyzedIndex: 0,
+        patternsVersion: 0,
+        problemsAttempted: 0,
+      });
+    }
+
+    // ==========================================
+    // 4) PARSE REQUEST BODY
+    // ==========================================
     const body = await req.json();
     const messages = body?.messages;
+    const isNewProblem = body?.isNewProblem || false;
+
     if (!Array.isArray(messages)) {
       return NextResponse.json({ error: "Invalid messages" }, { status: 400 });
     }
 
-    const safeMessages =
-      messages.length > MAX_MESSAGES ? messages.slice(-MAX_MESSAGES) : messages;
+    const totalMessages = messages.length;
+    let currentProblemSummary = session.currentProblemSummary || "";
+    let learningPatterns = session.learningPatterns || "";
+
+    // ==========================================
+    // 5) HANDLE NEW PROBLEM - REFINE PATTERNS
+    // ==========================================
+    if (isNewProblem) {
+      // Get messages from the completed problem
+      const completedProblemMessages = messages.slice(
+        session.currentProblemStartIndex,
+        totalMessages
+      );
+
+      // Only refine if there's enough conversation
+      if (completedProblemMessages.length > 5) {
+        // ITERATIVELY REFINE: Previous pattern + new problem messages
+        const refinedPattern = await refineLearningPatternSummary(
+          completedProblemMessages,
+          session.learningPatterns || null, // Pass previous pattern for refinement
+          topic.name
+        );
+
+        learningPatterns = refinedPattern;
+
+        // Update session with refined pattern and reset problem tracking
+        await ChatSession.updateOne(
+          { _id: session._id },
+          {
+            $set: {
+              learningPatterns: refinedPattern,
+              currentProblemSummary: "", // Reset problem summary
+              currentProblemStartIndex: totalMessages, // New problem starts here
+              lastProblemSummarizedIndex: totalMessages,
+              lastPatternsAnalyzedIndex: totalMessages,
+            },
+            $inc: {
+              problemsAttempted: 1,
+              patternsVersion: 1, // Track how many times refined
+            },
+          }
+        );
+      }
+
+      // Reset problem-level variables
+      currentProblemSummary = "";
+      session.currentProblemStartIndex = totalMessages;
+      // session.learningPatterns = refinedPattern;
+    }
+
+    // ==========================================
+    // 6) TIER 1: SUMMARIZE CURRENT PROBLEM PROGRESS
+    // ==========================================
+    const messagesInCurrentProblem =
+      totalMessages - session.currentProblemStartIndex;
+    const messagesSinceLastProblemSummary =
+      totalMessages - session.lastProblemSummarizedIndex;
+
+    if (messagesSinceLastProblemSummary >= SUMMARIZE_PROBLEM_EVERY) {
+      console.log(
+        `📝 Summarizing problem progress (${messagesInCurrentProblem} messages in current problem)`
+      );
+
+      // Get messages to summarize (exclude very recent ones)
+      const messagesToSummarize = messages.slice(
+        session.currentProblemStartIndex,
+        -RECENT_MESSAGES_COUNT
+      );
+
+      if (messagesToSummarize.length > 0) {
+        const progressSummary = await generateProblemProgressSummary(
+          messagesToSummarize,
+          topic.name
+        );
+
+        currentProblemSummary = progressSummary;
+
+        await ChatSession.updateOne(
+          { _id: session._id },
+          {
+            $set: {
+              currentProblemSummary: currentProblemSummary,
+              lastProblemSummarizedIndex: totalMessages - RECENT_MESSAGES_COUNT,
+            },
+          }
+        );
+
+        console.log(`✅ Problem progress summarized`);
+      }
+    }
+
+    // ==========================================
+    // 7) TIER 2: REFINE PATTERNS FOR LONG PROBLEMS
+    // ==========================================
+    // If a single problem goes on for too long, refine patterns mid-problem
+    if (
+      messagesInCurrentProblem >= ANALYZE_PATTERNS_AFTER_PROBLEM &&
+      totalMessages - session.lastPatternsAnalyzedIndex >=
+        ANALYZE_PATTERNS_AFTER_PROBLEM
+    ) {
+      console.log(
+        `🔄 Long problem detected (${messagesInCurrentProblem} messages), refining patterns mid-problem`
+      );
+
+      const messagesToAnalyze = messages.slice(
+        session.lastPatternsAnalyzedIndex,
+        -RECENT_MESSAGES_COUNT
+      );
+
+      if (messagesToAnalyze.length > 5) {
+        const refinedPattern = await refineLearningPatternSummary(
+          messagesToAnalyze,
+          session.learningPatterns || null,
+          topic.name
+        );
+
+        learningPatterns = refinedPattern;
+
+        await ChatSession.updateOne(
+          { _id: session._id },
+          {
+            $set: {
+              learningPatterns: refinedPattern,
+              lastPatternsAnalyzedIndex: totalMessages - RECENT_MESSAGES_COUNT,
+            },
+            $inc: { patternsVersion: 1 },
+          }
+        );
+
+        console.log(
+          `✅ Patterns refined mid-problem (version ${
+            session.patternsVersion + 1
+          })`
+        );
+      }
+    }
+
+    // ==========================================
+    // 8) GENERATE AI REPLY
+    // ==========================================
+    console.log(`🤖 Generating reply with:`);
+    console.log(`   - Topic: ${topic.name}`);
+    console.log(`   - Steps: ${topic.steps?.length || 0}`);
+    console.log(`   - Key Points: ${topic.keyPoints?.length || 0}`);
+    console.log(`   - Common Mistakes: ${topic.commonMistakes?.length || 0}`);
+    console.log(
+      `   - Problem Summary: ${currentProblemSummary ? "Yes" : "No"}`
+    );
+    console.log(
+      `   - Learning Patterns: ${
+        learningPatterns ? `Yes (v${session.patternsVersion})` : "No"
+      }`
+    );
+    console.log(`   - Recent Messages: 6`);
 
     const reply = await generateTutorReply({
       topicName: topic.name,
-      systemPrompt: topic.systemPrompt,
       steps: topic.steps,
-      messages: safeMessages,
+      keyPoints: topic.keyPoints,
+      commonMistakes: topic.commonMistakes,
+      messages: messages,
+      currentProblemSummary: currentProblemSummary,
+      learningPatterns: learningPatterns,
     });
 
-    // // 4) Call OpenAI (Responses API)
-    // const result = await client.responses.create({
-    //   model: "gpt-4o-mini",
-    //   instructions: `You are a friendly CS tutor. Topic: ${topicName}. Keep answers concise and beginner-friendly.`,
-    //   input: messages.map((m: any) => ({
-    //     role: m.role, // "user" | "assistant"
-    //     content: m.content,
-    //   })),
-    // });
-
-    // // Responses API returns output items; simplest is output_text helper
-    // const reply = result.output_text || "Sorry — I couldn't generate a reply.";
+    console.log(`✅ Reply generated successfully`);
 
     return NextResponse.json({ reply });
   } catch (err) {
-    console.error("Error in topic chat:", err);
-    return NextResponse.json({ error: "Failed to chat" }, { status: 500 });
+    console.error("❌ Error in topic chat:", err);
+    return NextResponse.json(
+      {
+        error: "Failed to chat",
+        details: err instanceof Error ? err.message : String(err),
+      },
+      { status: 500 }
+    );
   }
 }
