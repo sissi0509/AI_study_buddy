@@ -1,7 +1,4 @@
-// tutor.ts - ITERATIVE REFINEMENT
-
 import { GoogleGenerativeAI } from "@google/generative-ai";
-import { buildSystemPrompt } from "./promptBuilder";
 
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY!);
 
@@ -10,12 +7,81 @@ export type ChatMessage = {
   content: string;
 };
 
-// Problem progress summary (unchanged)
+// ============================================================================
+// SYSTEM PROMPT BUILDER
+// ============================================================================
+
+/**
+ * Builds the base system prompt for the AI tutor based on teacher inputs
+ */
+export function buildSystemPrompt({
+  topicName,
+  steps,
+  keyPoints,
+  commonMistakes,
+}: {
+  topicName: string;
+  steps?: string[];
+  keyPoints?: string[];
+  commonMistakes?: string[];
+}): string {
+  // Base Socratic pedagogy
+  let prompt = `You are a patient high school physics tutor helping a student with ${topicName}.
+
+Your teaching approach follows the Socratic method:
+- NEVER give direct answers or solutions
+- Guide the student step-by-step through questions
+- Ask ONE question at a time
+- Start by asking the student to explain the problem in their own words
+- Help them identify what they know and what they need to find
+- Encourage critical thinking at each step
+- If they make a mistake, ask guiding questions to help them discover it
+- Provide hints rather than solutions
+- Only confirm the final answer after they've worked through the entire problem`;
+
+  // Add problem-solving steps if provided
+  if (steps && steps.length > 0) {
+    prompt += `\n\nProblem-Solving Steps to guide them through:\n`;
+    steps.forEach((step, i) => {
+      prompt += `${i + 1}. ${step}\n`;
+    });
+  }
+
+  // Add key points if provided
+  if (keyPoints && keyPoints.length > 0) {
+    prompt += `\n\nKey Concepts students must understand:\n`;
+    keyPoints.forEach((point) => {
+      prompt += `- ${point}\n`;
+    });
+  }
+
+  // Add common mistakes if provided
+  if (commonMistakes && commonMistakes.length > 0) {
+    prompt += `\n\nCommon student mistakes to watch for:\n`;
+    commonMistakes.forEach((mistake) => {
+      prompt += `- ${mistake}\n`;
+    });
+  }
+
+  // Emotional prompt to improve AI performance and commitment
+  prompt += `\n\nIMPORTANT: The student is trusting you to guide their learning journey. Your patient, thoughtful guidance will help them build genuine understanding and confidence in physics. Take your time with each question and truly help them discover the answers themselves.`;
+
+  return prompt.trim();
+}
+
+// ============================================================================
+// PROBLEM PROGRESS SUMMARIZATION
+// ============================================================================
+
+/**
+ * Generates a concise summary of the current problem-solving progress
+ * Used to maintain context about the specific problem being worked on
+ */
 export async function generateProblemProgressSummary(
   messages: ChatMessage[],
   topicName: string
 ): Promise<string> {
-  const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
+  const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash-exp" });
 
   const conversation = messages
     .map((m) => `${m.role.toUpperCase()}: ${m.content}`)
@@ -43,13 +109,23 @@ Problem Progress Summary:
   return result.response.text();
 }
 
-// NEW: Iterative pattern refinement
+// ============================================================================
+// ITERATIVE LEARNING PATTERN REFINEMENT
+// ============================================================================
+
+/**
+ * Refines the understanding of student's learning patterns over time
+ * - First problem: Creates initial pattern observations
+ * - Subsequent problems: Updates patterns based on new evidence
+ *
+ * This mimics how real teachers develop deeper understanding of their students
+ */
 export async function refineLearningPatternSummary(
   newProblemMessages: ChatMessage[],
   previousPattern: string | null,
   topicName: string
 ): Promise<string> {
-  const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
+  const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash-exp" });
 
   const newConversation = newProblemMessages
     .map((m) => `${m.role.toUpperCase()}: ${m.content}`)
@@ -107,7 +183,14 @@ Initial Learning Patterns:
   return result.response.text();
 }
 
-// Build tutor prompt (unchanged from before)
+// ============================================================================
+// TUTOR PROMPT ASSEMBLY
+// ============================================================================
+
+/**
+ * Assembles the complete prompt for the AI tutor
+ * Combines: system prompt + learning patterns + problem progress + recent conversation
+ */
 function buildTutorPrompt({
   topicName,
   steps,
@@ -124,7 +207,8 @@ function buildTutorPrompt({
   messages: ChatMessage[];
   currentProblemSummary?: string;
   learningPatterns?: string;
-}) {
+}): string {
+  // Build base system prompt from teacher inputs
   const systemPrompt = buildSystemPrompt({
     topicName,
     steps,
@@ -132,16 +216,17 @@ function buildTutorPrompt({
     commonMistakes,
   });
 
+  // Add learning patterns if available (refined from previous problems)
   const learningPatternSection = learningPatterns
-    ? `\n\n[Student's Learning Patterns (refined from ${
-        learningPatterns.split("\n").length
-      } previous problems)]:\n${learningPatterns}`
+    ? `\n\n[Student's Learning Patterns (refined from previous problems)]:\n${learningPatterns}`
     : "";
 
+  // Add current problem progress if available
   const problemProgressSection = currentProblemSummary
     ? `\n\n[Current Problem Progress]:\n${currentProblemSummary}`
     : "";
 
+  // Include recent conversation history (last 6 messages = ~3 exchanges)
   const recentExchanges = messages.slice(-6);
   const conversation = recentExchanges
     .map((m) => `${m.role.toUpperCase()}: ${m.content}`)
@@ -157,10 +242,18 @@ ${conversation}
 
 Remember: Guide through questions, never give direct answers.
 
-A:
+ASSISTANT:
 `.trim();
 }
 
+// ============================================================================
+// TUTOR REPLY GENERATION
+// ============================================================================
+
+/**
+ * Main function to generate the AI tutor's response
+ * Uses all context (teacher inputs, learning patterns, problem progress)
+ */
 export async function generateTutorReply(args: {
   topicName: string;
   steps?: string[];
@@ -172,7 +265,7 @@ export async function generateTutorReply(args: {
 }): Promise<string> {
   const prompt = buildTutorPrompt(args);
 
-  const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
+  const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash-exp" });
 
   const result = await model.generateContent(prompt);
   return result.response.text();

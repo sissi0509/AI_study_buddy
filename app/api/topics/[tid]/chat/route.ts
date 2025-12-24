@@ -1,21 +1,58 @@
-// api/topics/[tid]/chat/route.ts - COMPLETE VERSION
+// app/api/topics/[tid]/chat/route.ts - WITH AUTO AUTH & PROBLEM DETECTION
 
 import { NextResponse } from "next/server";
 import mongoose from "mongoose";
 import { connectToDb } from "@/app/db/mongoose";
 import Topic from "@/app/db/Topics";
-import User from "@/app/db/Users";
 import ChatSession from "@/app/db/ChatSessions";
+import { getUserIdFromRequest } from "@/app/lib/auth";
 import {
   generateTutorReply,
   generateProblemProgressSummary,
   refineLearningPatternSummary,
+  type ChatMessage,
 } from "@/app/lib/ai/tutor";
 
 // Configuration constants
 const SUMMARIZE_PROBLEM_EVERY = 15; // Summarize current problem every 15 messages
 const ANALYZE_PATTERNS_AFTER_PROBLEM = 25; // Refine patterns after 25 messages (long problem)
 const RECENT_MESSAGES_COUNT = 6; // Keep last 6 messages in context
+
+/**
+ * Detects if this is a new problem based on:
+ * 1. Explicit flag from frontend (student clicked "New Problem" button)
+ * 2. Keywords in last message suggesting new problem
+ */
+function detectNewProblem(
+  messages: ChatMessage[],
+  explicitFlag: boolean
+): boolean {
+  // Explicit flag takes precedence
+  if (explicitFlag) return true;
+
+  // Check last user message for new problem indicators
+  if (messages.length < 2) return false;
+
+  const lastUserMessage = messages
+    .slice()
+    .reverse()
+    .find((m) => m.role === "user");
+
+  if (!lastUserMessage) return false;
+
+  const content = lastUserMessage.content.toLowerCase();
+  const newProblemKeywords = [
+    "new problem",
+    "next problem",
+    "different problem",
+    "another problem",
+    "can we do another",
+    "let's try a new",
+    "moving on to",
+  ];
+
+  return newProblemKeywords.some((keyword) => content.includes(keyword));
+}
 
 export async function POST(
   req: Request,
@@ -26,20 +63,22 @@ export async function POST(
     await connectToDb();
 
     // ==========================================
-    // 1) USER VALIDATION
+    // 1) USER AUTHENTICATION (AUTOMATIC)
     // ==========================================
-    const userId = req.headers.get("x-user-id");
-    if (!userId || !mongoose.Types.ObjectId.isValid(userId)) {
-      return NextResponse.json({ error: "Missing user" }, { status: 401 });
+    const userId = await getUserIdFromRequest(req);
+
+    if (!userId) {
+      return NextResponse.json(
+        { error: "Not authenticated. Please log in." },
+        { status: 401 }
+      );
     }
 
-    const user = await User.findById(userId).lean();
-    if (!user) {
-      return NextResponse.json({ error: "User not found" }, { status: 401 });
+    if (!mongoose.Types.ObjectId.isValid(userId)) {
+      return NextResponse.json({ error: "Invalid user ID" }, { status: 401 });
     }
-    // if (user.role !== "student") {
-    //   return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-    // }
+
+    console.log(`📝 Chat request from user: ${userId}`);
 
     // ==========================================
     // 2) TOPIC VALIDATION
@@ -63,6 +102,7 @@ export async function POST(
     });
 
     if (!session) {
+      console.log(`🆕 Creating new chat session`);
       session = await ChatSession.create({
         userId,
         topicId: tid,
@@ -82,7 +122,7 @@ export async function POST(
     // ==========================================
     const body = await req.json();
     const messages = body?.messages;
-    const isNewProblem = body?.isNewProblem || false;
+    const explicitNewProblemFlag = body?.isNewProblem || false;
 
     if (!Array.isArray(messages)) {
       return NextResponse.json({ error: "Invalid messages" }, { status: 400 });
@@ -93,9 +133,13 @@ export async function POST(
     let learningPatterns = session.learningPatterns || "";
 
     // ==========================================
-    // 5) HANDLE NEW PROBLEM - REFINE PATTERNS
+    // 5) DETECT NEW PROBLEM (AUTO + MANUAL)
     // ==========================================
+    const isNewProblem = detectNewProblem(messages, explicitNewProblemFlag);
+
     if (isNewProblem) {
+      console.log(`🔄 New problem detected`);
+
       // Get messages from the completed problem
       const completedProblemMessages = messages.slice(
         session.currentProblemStartIndex,
@@ -104,10 +148,14 @@ export async function POST(
 
       // Only refine if there's enough conversation
       if (completedProblemMessages.length > 5) {
+        console.log(
+          `🧠 Refining learning patterns from ${completedProblemMessages.length} messages`
+        );
+
         // ITERATIVELY REFINE: Previous pattern + new problem messages
         const refinedPattern = await refineLearningPatternSummary(
           completedProblemMessages,
-          session.learningPatterns || null, // Pass previous pattern for refinement
+          session.learningPatterns || null,
           topic.name
         );
 
@@ -130,12 +178,15 @@ export async function POST(
             },
           }
         );
+
+        console.log(
+          `✅ Patterns refined (version ${session.patternsVersion + 1})`
+        );
       }
 
       // Reset problem-level variables
       currentProblemSummary = "";
       session.currentProblemStartIndex = totalMessages;
-      // session.learningPatterns = refinedPattern;
     }
 
     // ==========================================
@@ -148,7 +199,7 @@ export async function POST(
 
     if (messagesSinceLastProblemSummary >= SUMMARIZE_PROBLEM_EVERY) {
       console.log(
-        `📝 Summarizing problem progress (${messagesInCurrentProblem} messages in current problem)`
+        `📋 Summarizing problem progress (${messagesInCurrentProblem} messages in current problem)`
       );
 
       // Get messages to summarize (exclude very recent ones)
@@ -182,7 +233,6 @@ export async function POST(
     // ==========================================
     // 7) TIER 2: REFINE PATTERNS FOR LONG PROBLEMS
     // ==========================================
-    // If a single problem goes on for too long, refine patterns mid-problem
     if (
       messagesInCurrentProblem >= ANALYZE_PATTERNS_AFTER_PROBLEM &&
       totalMessages - session.lastPatternsAnalyzedIndex >=
@@ -241,7 +291,6 @@ export async function POST(
         learningPatterns ? `Yes (v${session.patternsVersion})` : "No"
       }`
     );
-    console.log(`   - Recent Messages: 6`);
 
     const reply = await generateTutorReply({
       topicName: topic.name,

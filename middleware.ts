@@ -19,14 +19,14 @@ export async function middleware(req: NextRequest) {
   // protect student area
   if (pathname.startsWith("/student")) {
     if (!auth || auth.role !== "student") {
-      return NextResponse.redirect(new URL("/login", req.url));
+      return NextResponse.redirect(new URL("/auth/login", req.url));
     }
   }
 
   // protect teacher area
   if (pathname.startsWith("/teacher")) {
     if (!auth || (auth.role !== "teacher" && auth.role !== "admin")) {
-      return NextResponse.redirect(new URL("/login", req.url));
+      return NextResponse.redirect(new URL("/auth/login", req.url));
     }
   }
 

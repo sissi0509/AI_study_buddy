@@ -16,23 +16,10 @@ type Topic = {
   name: string;
   description: string;
   steps: string[];
-  systemPrompt: string;
+  keyPoints: string[];
+  commonMistakes: string[];
   subject?: string;
 };
-
-export const DEFAULT_SYSTEM_PROMPT = `
-You are a patient high school physics tutor for this topic.
-Your goal is to guide the student step-by-step instead of giving direct answers.
-
-Follow these rules:
-- Ask one question at a time.
-- Start by asking the student to restate the problem in their own words.
-- Then walk through the solving steps.
-- Encourage the student to think critically at each step.
-- If the student makes a mistake, gently point it out and guide them back on track.
-- Provide hints rather than full solutions.
-- Only give the final numeric answer if the student has tried or explicitly asks.
-`.trim();
 
 export default function TeacherChapterWorkspacePage() {
   const router = useRouter();
@@ -42,7 +29,6 @@ export default function TeacherChapterWorkspacePage() {
   const subject = "Physics";
 
   const [chapter, setChapter] = useState<Chapter | null>(null);
-
   const [topics, setTopics] = useState<Topic[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -51,9 +37,9 @@ export default function TeacherChapterWorkspacePage() {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
-  //   const [systemPrompt, setSystemPrompt] = useState("");
-  const [systemPrompt, setSystemPrompt] = useState(DEFAULT_SYSTEM_PROMPT);
   const [steps, setSteps] = useState<string[]>([""]);
+  const [keyPoints, setKeyPoints] = useState<string[]>([""]);
+  const [commonMistakes, setCommonMistakes] = useState<string[]>([""]);
   const [saving, setSaving] = useState(false);
 
   const fetchChapterAndTopics = useCallback(async () => {
@@ -89,16 +75,18 @@ export default function TeacherChapterWorkspacePage() {
     setEditingId(null);
     setName("");
     setDescription("");
-    setSystemPrompt("");
     setSteps([""]);
+    setKeyPoints([""]);
+    setCommonMistakes([""]);
   }
 
   function loadTopic(t: Topic) {
     setEditingId(t.id);
     setName(t.name ?? "");
     setDescription(t.description ?? "");
-    setSystemPrompt(t.systemPrompt ?? "");
     setSteps(t.steps?.length ? t.steps : [""]);
+    setKeyPoints(t.keyPoints?.length ? t.keyPoints : [""]);
+    setCommonMistakes(t.commonMistakes?.length ? t.commonMistakes : [""]);
   }
 
   function updateStep(i: number, val: string) {
@@ -111,6 +99,34 @@ export default function TeacherChapterWorkspacePage() {
 
   function removeStep(i: number) {
     setSteps((prev) =>
+      prev.length <= 1 ? prev : prev.filter((_, idx) => idx !== i)
+    );
+  }
+
+  function updateKeyPoint(i: number, val: string) {
+    setKeyPoints((prev) => prev.map((s, idx) => (idx === i ? val : s)));
+  }
+
+  function addKeyPoint() {
+    setKeyPoints((prev) => [...prev, ""]);
+  }
+
+  function removeKeyPoint(i: number) {
+    setKeyPoints((prev) =>
+      prev.length <= 1 ? prev : prev.filter((_, idx) => idx !== i)
+    );
+  }
+
+  function updateCommonMistake(i: number, val: string) {
+    setCommonMistakes((prev) => prev.map((s, idx) => (idx === i ? val : s)));
+  }
+
+  function addCommonMistake() {
+    setCommonMistakes((prev) => [...prev, ""]);
+  }
+
+  function removeCommonMistake(i: number) {
+    setCommonMistakes((prev) =>
       prev.length <= 1 ? prev : prev.filter((_, idx) => idx !== i)
     );
   }
@@ -133,9 +149,10 @@ export default function TeacherChapterWorkspacePage() {
     const payload = {
       name: cleanedName,
       description: cleanedDescription,
-      systemPrompt: systemPrompt.trim(),
       steps: steps.map((s) => s.trim()).filter(Boolean),
-      subject, // fixed for now
+      keyPoints: keyPoints.map((s) => s.trim()).filter(Boolean),
+      commonMistakes: commonMistakes.map((s) => s.trim()).filter(Boolean),
+      subject,
     };
 
     try {
@@ -154,7 +171,7 @@ export default function TeacherChapterWorkspacePage() {
       } else {
         // update
         const res = await fetch(`/api/topics/${editingId}`, {
-          method: "PUT",
+          method: "PATCH",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(payload),
         });
@@ -171,10 +188,6 @@ export default function TeacherChapterWorkspacePage() {
     }
   }
 
-  // const handleCancel = () => {
-  //   resetForm();
-  // };
-
   const handleDelete = async (t: Topic) => {
     const ok = window.confirm(
       "Are you sure you want to delete this? You can't undo this."
@@ -189,7 +202,7 @@ export default function TeacherChapterWorkspacePage() {
       return;
     }
 
-    setTopics((prev) => prev.filter((t) => t.id !== t.id));
+    setTopics((prev) => prev.filter((topic) => topic.id !== t.id));
   };
 
   return (
@@ -226,13 +239,6 @@ export default function TeacherChapterWorkspacePage() {
         <section className="rounded-xl border bg-white p-4">
           <div className="flex items-center justify-between">
             <h2 className="text-lg font-semibold">Topics</h2>
-            {/* <button
-              onClick={fetchChapterAndTopics}
-              className="rounded-md border px-3 py-1.5 text-sm hover:bg-gray-50 disabled:opacity-50"
-              disabled={loading}
-            >
-              Refresh
-            </button> */}
           </div>
 
           <div className="mt-4">
@@ -254,7 +260,6 @@ export default function TeacherChapterWorkspacePage() {
                     className="rounded-lg border p-3 hover:bg-gray-50 transition"
                   >
                     <div className="flex items-start justify-between gap-3">
-                      {/* Left: clickable content */}
                       <div
                         onClick={() => loadTopic(t)}
                         className="flex-1 cursor-pointer"
@@ -265,12 +270,17 @@ export default function TeacherChapterWorkspacePage() {
                           {t.description}
                         </div>
 
-                        <div className="mt-1 text-xs text-gray-500">
-                          Steps: {t.steps?.length ?? 0}
+                        <div className="mt-1 flex flex-wrap gap-2 text-xs text-gray-500">
+                          <span>Steps: {t.steps?.length ?? 0}</span>
+                          <span>•</span>
+                          <span>Key Points: {t.keyPoints?.length ?? 0}</span>
+                          <span>•</span>
+                          <span>
+                            Common Mistakes: {t.commonMistakes?.length ?? 0}
+                          </span>
                         </div>
                       </div>
 
-                      {/* Right: trash icon */}
                       <button
                         onClick={(e) => {
                           e.stopPropagation();
@@ -291,7 +301,7 @@ export default function TeacherChapterWorkspacePage() {
         </section>
 
         {/* Create/Edit form */}
-        <section className="rounded-xl border bg-white p-4">
+        <section className="rounded-xl border bg-white p-4 overflow-y-auto max-h-[calc(100vh-200px)]">
           <div className="flex items-center justify-between gap-2">
             <h2 className="text-lg font-semibold">
               {editingId ? "Edit topic" : "Create topic"}
@@ -304,14 +314,14 @@ export default function TeacherChapterWorkspacePage() {
             </button>
           </div>
 
-          <div className="mt-4 space-y-3">
+          <div className="mt-4 space-y-4">
             <div className="space-y-1">
               <label className="text-sm font-medium">Topic name</label>
               <input
                 value={name}
                 onChange={(e) => setName(e.target.value)}
                 className="w-full rounded-md border px-3 py-2 text-sm focus:outline-none focus:ring"
-                placeholder='e.g., "Orbits"'
+                placeholder='e.g., "Circular Motion"'
               />
             </div>
 
@@ -326,22 +336,10 @@ export default function TeacherChapterWorkspacePage() {
               />
             </div>
 
-            <div className="space-y-1">
-              <label className="text-sm font-medium">
-                System prompt (optional)
-              </label>
-              <textarea
-                value={systemPrompt}
-                onChange={(e) => setSystemPrompt(e.target.value)}
-                rows={5}
-                className="w-full rounded-md border px-3 py-2 text-sm focus:outline-none focus:ring"
-                placeholder="You are a tutor for this topic. Never jump directly to the answer…"
-              />
-            </div>
-
+            {/* Steps Section */}
             <div className="rounded-lg border bg-gray-50 p-3">
               <div className="flex items-center justify-between">
-                <div className="text-sm font-medium">Steps</div>
+                <div className="text-sm font-medium">Problem-Solving Steps</div>
                 <button
                   onClick={addStep}
                   className="rounded-md border bg-white px-3 py-1.5 text-sm hover:bg-gray-50"
@@ -357,7 +355,9 @@ export default function TeacherChapterWorkspacePage() {
                       value={s}
                       onChange={(e) => updateStep(i, e.target.value)}
                       className="flex-1 rounded-md border px-3 py-2 text-sm focus:outline-none focus:ring bg-white"
-                      placeholder={`Step ${i + 1}`}
+                      placeholder={`Step ${
+                        i + 1
+                      }: e.g., "Identify known variables"`}
                     />
                     <button
                       onClick={() => removeStep(i)}
@@ -376,24 +376,104 @@ export default function TeacherChapterWorkspacePage() {
               </div>
             </div>
 
-            <div className="flex justify-end gap-3">
+            {/* Key Points Section */}
+            <div className="rounded-lg border bg-gray-50 p-3">
+              <div className="flex items-center justify-between">
+                <div>
+                  <div className="text-sm font-medium">
+                    Key Points (Optional)
+                  </div>
+                  <div className="text-xs text-gray-600 mt-0.5">
+                    Important concepts students must understand
+                  </div>
+                </div>
+                <button
+                  onClick={addKeyPoint}
+                  className="rounded-md border bg-white px-3 py-1.5 text-sm hover:bg-gray-50"
+                >
+                  + Add
+                </button>
+              </div>
+
+              <div className="mt-3 space-y-2">
+                {keyPoints.map((kp, i) => (
+                  <div key={i} className="flex gap-2">
+                    <input
+                      value={kp}
+                      onChange={(e) => updateKeyPoint(i, e.target.value)}
+                      className="flex-1 rounded-md border px-3 py-2 text-sm focus:outline-none focus:ring bg-white"
+                      placeholder={`e.g., "Centripetal force points toward center"`}
+                    />
+                    <button
+                      onClick={() => removeKeyPoint(i)}
+                      className="rounded-md border px-3 py-2 text-sm hover:bg-white disabled:opacity-50"
+                      disabled={keyPoints.length <= 1}
+                    >
+                      Remove
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* Common Mistakes Section */}
+            <div className="rounded-lg border bg-gray-50 p-3">
+              <div className="flex items-center justify-between">
+                <div>
+                  <div className="text-sm font-medium">
+                    Common Mistakes (Optional)
+                  </div>
+                  <div className="text-xs text-gray-600 mt-0.5">
+                    What students typically get wrong
+                  </div>
+                </div>
+                <button
+                  onClick={addCommonMistake}
+                  className="rounded-md border bg-white px-3 py-1.5 text-sm hover:bg-gray-50"
+                >
+                  + Add
+                </button>
+              </div>
+
+              <div className="mt-3 space-y-2">
+                {commonMistakes.map((cm, i) => (
+                  <div key={i} className="flex gap-2">
+                    <input
+                      value={cm}
+                      onChange={(e) => updateCommonMistake(i, e.target.value)}
+                      className="flex-1 rounded-md border px-3 py-2 text-sm focus:outline-none focus:ring bg-white"
+                      placeholder={`e.g., "Confusing centripetal with centrifugal force"`}
+                    />
+                    <button
+                      onClick={() => removeCommonMistake(i)}
+                      className="rounded-md border px-3 py-2 text-sm hover:bg-white disabled:opacity-50"
+                      disabled={commonMistakes.length <= 1}
+                    >
+                      Remove
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            <div className="flex justify-end gap-3 pt-2">
+              <button
+                onClick={resetForm}
+                disabled={saving}
+                className="rounded-md border px-4 py-2 text-sm hover:bg-gray-50 disabled:opacity-50"
+              >
+                Cancel
+              </button>
               <button
                 onClick={handleSave}
                 disabled={saving}
-                className="w-full rounded-md bg-black px-4 py-2 text-sm text-white hover:bg-gray-800 disabled:opacity-50"
+                className="rounded-md bg-black px-4 py-2 text-sm text-white hover:bg-gray-800 disabled:opacity-50"
               >
                 {saving
                   ? "Saving…"
                   : editingId
                   ? "Save changes"
                   : "Create topic"}
-              </button>
-              <button
-                onClick={resetForm}
-                disabled={saving}
-                className="w-full rounded-md bg-black px-4 py-2 text-sm text-white hover:bg-gray-800 disabled:opacity-50"
-              >
-                Cancel
               </button>
             </div>
           </div>
