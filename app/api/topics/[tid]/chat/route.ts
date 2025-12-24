@@ -65,7 +65,7 @@ export async function POST(
     // ==========================================
     // 1) USER AUTHENTICATION (AUTOMATIC)
     // ==========================================
-    const userId = await getUserIdFromRequest(req);
+    const userId = await getUserIdFromRequest();
 
     if (!userId) {
       return NextResponse.json(
@@ -77,8 +77,6 @@ export async function POST(
     if (!mongoose.Types.ObjectId.isValid(userId)) {
       return NextResponse.json({ error: "Invalid user ID" }, { status: 401 });
     }
-
-    console.log(`📝 Chat request from user: ${userId}`);
 
     // ==========================================
     // 2) TOPIC VALIDATION
@@ -102,7 +100,6 @@ export async function POST(
     });
 
     if (!session) {
-      console.log(`🆕 Creating new chat session`);
       session = await ChatSession.create({
         userId,
         topicId: tid,
@@ -138,8 +135,6 @@ export async function POST(
     const isNewProblem = detectNewProblem(messages, explicitNewProblemFlag);
 
     if (isNewProblem) {
-      console.log(`🔄 New problem detected`);
-
       // Get messages from the completed problem
       const completedProblemMessages = messages.slice(
         session.currentProblemStartIndex,
@@ -148,10 +143,6 @@ export async function POST(
 
       // Only refine if there's enough conversation
       if (completedProblemMessages.length > 5) {
-        console.log(
-          `🧠 Refining learning patterns from ${completedProblemMessages.length} messages`
-        );
-
         // ITERATIVELY REFINE: Previous pattern + new problem messages
         const refinedPattern = await refineLearningPatternSummary(
           completedProblemMessages,
@@ -178,10 +169,6 @@ export async function POST(
             },
           }
         );
-
-        console.log(
-          `✅ Patterns refined (version ${session.patternsVersion + 1})`
-        );
       }
 
       // Reset problem-level variables
@@ -198,10 +185,6 @@ export async function POST(
       totalMessages - session.lastProblemSummarizedIndex;
 
     if (messagesSinceLastProblemSummary >= SUMMARIZE_PROBLEM_EVERY) {
-      console.log(
-        `📋 Summarizing problem progress (${messagesInCurrentProblem} messages in current problem)`
-      );
-
       // Get messages to summarize (exclude very recent ones)
       const messagesToSummarize = messages.slice(
         session.currentProblemStartIndex,

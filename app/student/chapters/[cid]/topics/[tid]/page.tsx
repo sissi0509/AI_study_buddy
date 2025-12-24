@@ -127,7 +127,7 @@ export default function StudentChatPage() {
     }
 
     const confirmed = window.confirm(
-      "Ready to move to a new problem? Your next message will start fresh, and I'll learn from what we just worked on together."
+      "Ready to move to a new problem? Your next message will start fresh, and I will learn from what we just worked on together."
     );
 
     if (confirmed) {
@@ -215,9 +215,9 @@ export default function StudentChatPage() {
                 Ready to learn {topic?.name}?
               </h2>
               <p className="text-sm text-gray-600 max-w-md mx-auto">
-                Share a physics problem below, and I'll guide you through
-                solving it step-by-step. Remember: I won't give you the answer
-                directly, but I'll help you discover it yourself!
+                Share a physics problem below, and I will guide you through
+                solving it step-by-step. Remember: I will not give you the
+                answer directly, but I will help you discover it yourself!
               </p>
             </div>
           ) : (
@@ -292,7 +292,7 @@ export default function StudentChatPage() {
               </svg>
               <div>
                 <strong>New Problem Mode:</strong> Type your new problem below.
-                I'll learn from what we just worked on!
+                I will learn from what we just worked on!
               </div>
             </div>
           </div>
@@ -310,7 +310,7 @@ export default function StudentChatPage() {
               onKeyDown={handleKeyDown}
               placeholder={
                 isNewProblemQueued
-                  ? "Type your NEW problem here... (I'll learn from the previous one!)"
+                  ? "Type your NEW problem here... (I will learn from the previous one!)"
                   : "Type your physics problem or question here... (Shift+Enter for new line)"
               }
               rows={2}
