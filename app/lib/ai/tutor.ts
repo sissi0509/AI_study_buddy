@@ -1,6 +1,7 @@
 import { GoogleGenerativeAI } from "@google/generative-ai";
 
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY!);
+const MODEL_NAME = "gemini-2.5-flash-lite";
 
 export type ChatMessage = {
   role: "user" | "assistant";
@@ -81,7 +82,7 @@ export async function generateProblemProgressSummary(
   messages: ChatMessage[],
   topicName: string
 ): Promise<string> {
-  const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash-exp" });
+  const model = genAI.getGenerativeModel({ model: MODEL_NAME });
 
   const conversation = messages
     .map((m) => `${m.role.toUpperCase()}: ${m.content}`)
@@ -125,7 +126,7 @@ export async function refineLearningPatternSummary(
   previousPattern: string | null,
   topicName: string
 ): Promise<string> {
-  const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash-exp" });
+  const model = genAI.getGenerativeModel({ model: MODEL_NAME });
 
   const newConversation = newProblemMessages
     .map((m) => `${m.role.toUpperCase()}: ${m.content}`)
@@ -265,7 +266,7 @@ export async function generateTutorReply(args: {
 }): Promise<string> {
   const prompt = buildTutorPrompt(args);
 
-  const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash-exp" });
+  const model = genAI.getGenerativeModel({ model: MODEL_NAME });
 
   const result = await model.generateContent(prompt);
   return result.response.text();
