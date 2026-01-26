@@ -26,50 +26,51 @@ export function buildSystemPrompt({
   keyPoints?: string[];
   commonMistakes?: string[];
 }): string {
-  // Base Socratic pedagogy
-  let prompt = `You are a patient high school physics tutor helping a student with ${topicName}.
+  let prompt = `
+You are a physics tutor helping a student with ${topicName}.
+This is a real tutoring session; thoughtful guidance matters.
 
-Your teaching approach follows the Socratic method:
-- NEVER give direct answers or solutions
-- Guide the student step-by-step through questions
+STYLE:
+- Socratic: guide with questions, not full solutions
 - Ask ONE question at a time
-- Start by asking the student to explain the problem in their own words
-- Help them identify what they know and what they need to find
-- Encourage critical thinking at each step
-- If they make a mistake, ask guiding questions to help them discover it
-- Provide hints rather than solutions
-- Only confirm the final answer after they've worked through the entire problem`;
+- Adapt to the student's current understanding
+- Do not give the final numeric answer
 
-  // Add problem-solving steps if provided
-  if (steps && steps.length > 0) {
-    prompt += `\n\nProblem-Solving Steps to guide them through:\n`;
-    steps.forEach((step, i) => {
-      prompt += `${i + 1}. ${step}\n`;
-    });
+You MAY clarify concepts, restate formulas, or confirm an intermediate step.
+`.trim();
+
+  if (steps?.length) {
+    prompt += `
+
+TEACHER GUIDANCE (flexible, not a sequence):
+- ${steps.join("\n- ")}
+
+Rules:
+- Skip what the student has mastered
+- Add a micro-step if they are stuck
+- Compress steps if they are confident
+- Pick the single best next question
+`;
   }
 
-  // Add key points if provided
-  if (keyPoints && keyPoints.length > 0) {
-    prompt += `\n\nKey Concepts students must understand:\n`;
-    keyPoints.forEach((point) => {
-      prompt += `- ${point}\n`;
-    });
+  if (keyPoints?.length) {
+    prompt += `
+
+KEY IDEAS (use only when relevant):
+- ${keyPoints.join("\n- ")}
+`;
   }
 
-  // Add common mistakes if provided
-  if (commonMistakes && commonMistakes.length > 0) {
-    prompt += `\n\nCommon student mistakes to watch for:\n`;
-    commonMistakes.forEach((mistake) => {
-      prompt += `- ${mistake}\n`;
-    });
-  }
+  if (commonMistakes?.length) {
+    prompt += `
 
-  // Emotional prompt to improve AI performance and commitment
-  prompt += `\n\nIMPORTANT: The student is trusting you to guide their learning journey. Your patient, thoughtful guidance will help them build genuine understanding and confidence in physics. Take your time with each question and truly help them discover the answers themselves.`;
+COMMON PITFALLS (address only if you see signs):
+- ${commonMistakes.join("\n- ")}
+`;
+  }
 
   return prompt.trim();
 }
-
 // ============================================================================
 // PROBLEM PROGRESS SUMMARIZATION
 // ============================================================================
@@ -89,21 +90,19 @@ export async function generateProblemProgressSummary(
     .join("\n");
 
   const summaryPrompt = `
-Summarize the current problem-solving progress in 2-3 sentences.
+Summarize the current physics problem-solving progress in 2–3 sentences.
 
-Focus on:
-1. What is the specific problem being solved (numbers, context)
-2. What has the student already figured out or established
-3. What step they are currently working on
-
-DO NOT include: mistakes, learning patterns, or pedagogical notes - just factual progress.
+Include only:
+- the problem context
+- what the student has established
+- what they are working on now
 
 Topic: ${topicName}
 
 Conversation:
 ${conversation}
 
-Problem Progress Summary:
+Summary:
 `.trim();
 
   const result = await model.generateContent(summaryPrompt);
@@ -128,59 +127,38 @@ export async function refineLearningPatternSummary(
 ): Promise<string> {
   const model = genAI.getGenerativeModel({ model: MODEL_NAME });
 
-  const newConversation = newProblemMessages
+  const conversation = newProblemMessages
     .map((m) => `${m.role.toUpperCase()}: ${m.content}`)
     .join("\n");
 
-  // Different prompt based on whether we have previous patterns
-  const summaryPrompt = previousPattern
+  const prompt = previousPattern
     ? `
-You are refining your understanding of a student's learning patterns in physics.
+Update the student's learning patterns based on this new session.
 
 Topic: ${topicName}
 
-PREVIOUS LEARNING PATTERNS (from earlier problems):
+Previous patterns:
 ${previousPattern}
 
-NEW PROBLEM SESSION (just completed):
-${newConversation}
+New session:
+${conversation}
 
-Task: Update and refine the learning patterns based on this new evidence.
-- CONFIRM patterns that appear again (e.g., "still struggles with...")
-- UPDATE patterns if the student has improved (e.g., "previously struggled with X, now showing mastery")
-- ADD new patterns if you notice new consistent behaviors
-- REMOVE patterns if they no longer apply
+Rules:
+- Only treat repeated behavior as a pattern
+- Phrase first-time issues cautiously
+- Update or remove patterns if behavior changes
 
-Focus on:
-1. What problem-solving skills the student has MASTERED (confirmed or newly observed)
-2. What mistakes the student makes (patterns, not one-time errors), if it is the first time the student made the mistake, also include it here.
-3. What concepts the student STRUGGLES with consistently
-4. What types of hints work best for this student
-
-Write 3-4 concise sentences that represent your UPDATED understanding.
-
-REFINED Learning Patterns:
-`.trim()
+Write 3–4 concise sentences.
+`
     : `
-Analyze this first physics problem-solving session and extract initial learning patterns.
+Extract initial learning observations from this session.
 
-Topic: ${topicName}
+Session:
+${conversation}
 
-FIRST PROBLEM SESSION:
-${newConversation}
+Write 3–4 concise sentences.`;
 
-Focus on:
-1. What problem-solving skills the student demonstrated
-2. What mistakes the student made (if repeated, note as potential pattern)
-3. What concepts the student struggled with
-4. What types of hints seemed to help
-
-Write 3-4 concise sentences about initial observations.
-
-Initial Learning Patterns:
-`.trim();
-
-  const result = await model.generateContent(summaryPrompt);
+  const result = await model.generateContent(prompt.trim());
   return result.response.text();
 }
 
@@ -209,7 +187,6 @@ function buildTutorPrompt({
   currentProblemSummary?: string;
   learningPatterns?: string;
 }): string {
-  // Build base system prompt from teacher inputs
   const systemPrompt = buildSystemPrompt({
     topicName,
     steps,
@@ -217,31 +194,21 @@ function buildTutorPrompt({
     commonMistakes,
   });
 
-  // Add learning patterns if available (refined from previous problems)
-  const learningPatternSection = learningPatterns
-    ? `\n\n[Student's Learning Patterns (refined from previous problems)]:\n${learningPatterns}`
-    : "";
-
-  // Add current problem progress if available
-  const problemProgressSection = currentProblemSummary
-    ? `\n\n[Current Problem Progress]:\n${currentProblemSummary}`
-    : "";
-
-  // Include recent conversation history (last 6 messages = ~3 exchanges)
-  const recentExchanges = messages.slice(-6);
-  const conversation = recentExchanges
+  const recentConversation = messages
+    .slice(-8)
     .map((m) => `${m.role.toUpperCase()}: ${m.content}`)
     .join("\n");
 
   return `
 ${systemPrompt}
-${learningPatternSection}
-${problemProgressSection}
+
+${learningPatterns ? `[Student Patterns]\n${learningPatterns}\n` : ""}
+${currentProblemSummary ? `[Problem Progress]\n${currentProblemSummary}\n` : ""}
 
 Recent Conversation:
-${conversation}
+${recentConversation}
 
-Remember: Guide through questions, never give direct answers.
+Ask ONE helpful question. Do not give the final answer.
 
 ASSISTANT:
 `.trim();
@@ -265,9 +232,7 @@ export async function generateTutorReply(args: {
   learningPatterns?: string;
 }): Promise<string> {
   const prompt = buildTutorPrompt(args);
-
   const model = genAI.getGenerativeModel({ model: MODEL_NAME });
-
   const result = await model.generateContent(prompt);
   return result.response.text();
 }
