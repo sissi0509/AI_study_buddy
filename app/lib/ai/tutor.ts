@@ -153,7 +153,7 @@ Task: Update and refine the learning patterns based on this new evidence.
 
 Focus on:
 1. What problem-solving skills the student has MASTERED (confirmed or newly observed)
-2. What mistakes the student REPEATEDLY makes (patterns, not one-time errors)
+2. What mistakes the student makes (patterns, not one-time errors), if it is the first time the student made the mistake, also include it here.
 3. What concepts the student STRUGGLES with consistently
 4. What types of hints work best for this student
 

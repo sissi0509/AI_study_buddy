@@ -159,7 +159,7 @@ export default function StudentChatPage() {
         <div className="max-w-4xl mx-auto flex items-center justify-between gap-4">
           <div className="flex-1 min-w-0">
             <Link
-              href={`/student/chapters/${cid}`}
+              href={`/student/chapters/${cid}/topics`}
               className="text-xs text-blue-600 hover:underline mb-1 block"
             >
               ← Back to topics
@@ -311,7 +311,7 @@ export default function StudentChatPage() {
               placeholder={
                 isNewProblemQueued
                   ? "Type your NEW problem here... (I will learn from the previous one!)"
-                  : "Type your physics problem or question here... (Shift+Enter for new line)"
+                  : "Type your physics problem or question here... "
               }
               rows={2}
               disabled={loading}
