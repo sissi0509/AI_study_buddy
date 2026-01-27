@@ -3,7 +3,7 @@
 import { useEffect, useState, useRef } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
-import MathMessage from "../../../../../components/MathMessage";
+import MathMessage from "app/components/MathMessage";
 
 type Message = {
   role: "user" | "assistant";
@@ -26,7 +26,6 @@ export default function StudentChatPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [loadingTopic, setLoadingTopic] = useState(true);
-  const [loadingMessages, setLoadingMessages] = useState(true);
   const [isNewProblemQueued, setIsNewProblemQueued] = useState(false);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -40,7 +39,6 @@ export default function StudentChatPage() {
     inputRef.current?.focus();
   }, []);
 
-  // Fetch topic info
   useEffect(() => {
     if (!tid) return;
 
@@ -61,29 +59,6 @@ export default function StudentChatPage() {
     fetchTopic();
   }, [tid]);
 
-  // Load existing chat session
-  useEffect(() => {
-    if (!tid) return;
-
-    const loadSession = async () => {
-      try {
-        const res = await fetch(`/api/topics/${tid}/chat`);
-        if (res.ok) {
-          const data = await res.json();
-          if (data.messages?.length) {
-            setMessages(data.messages);
-          }
-        }
-      } catch (err) {
-        console.error("Failed to load chat session:", err);
-      } finally {
-        setLoadingMessages(false);
-      }
-    };
-
-    loadSession();
-  }, [tid]);
-
   const sendMessage = async () => {
     if (!input.trim()) return;
 
@@ -94,12 +69,12 @@ export default function StudentChatPage() {
     setError("");
     setIsNewProblemQueued(false);
 
-    // Optimistically add user message to UI
-    const optimisticMessages: Message[] = [
+    const newMessages: Message[] = [
       ...messages,
       { role: "user", content: userMessage },
     ];
-    setMessages(optimisticMessages);
+
+    setMessages(newMessages);
     setLoading(true);
 
     try {
@@ -107,7 +82,7 @@ export default function StudentChatPage() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          message: userMessage, // Now sending just the new message
+          messages: newMessages,
           isNewProblem: sendAsNewProblem,
         }),
       });
@@ -118,16 +93,11 @@ export default function StudentChatPage() {
       }
 
       const data = await res.json();
-      // Add AI reply to messages
-      setMessages([
-        ...optimisticMessages,
-        { role: "assistant", content: data.reply },
-      ]);
+      setMessages([...newMessages, { role: "assistant", content: data.reply }]);
     } catch (err: unknown) {
       const message =
         err instanceof Error ? err.message : "Something went wrong";
       setError(message);
-      // Rollback optimistic update
       setMessages(messages);
     } finally {
       setLoading(false);
@@ -165,7 +135,7 @@ export default function StudentChatPage() {
     }
   };
 
-  if (loadingTopic || loadingMessages) {
+  if (loadingTopic) {
     return (
       <div className="min-h-screen flex items-center justify-center">
         <p className="text-sm text-gray-600">Loading...</p>

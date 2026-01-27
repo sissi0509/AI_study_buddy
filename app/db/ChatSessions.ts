@@ -7,7 +7,7 @@ const ChatMessageSchema = new Schema(
     content: { type: String, required: true },
     createdAt: { type: Date, default: Date.now },
   },
-  { _id: false }
+  { _id: false },
 );
 
 const ChatSessionSchema = new Schema(
@@ -30,7 +30,7 @@ const ChatSessionSchema = new Schema(
     problemsAttempted: { type: Number, default: 0 },
     totalTokensUsed: { type: Number, default: 0 },
   },
-  { timestamps: true }
+  { timestamps: true },
 );
 
 ChatSessionSchema.index({ userId: 1, topicId: 1 }, { unique: true });

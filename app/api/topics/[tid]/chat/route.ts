@@ -1,4 +1,4 @@
-// app/api/topics/[tid]/chat/route.ts - WITH AUTO AUTH & PROBLEM DETECTION
+// app/api/topics/[tid]/chat/route.ts
 
 import { NextResponse } from "next/server";
 import mongoose from "mongoose";
@@ -13,35 +13,63 @@ import {
   type ChatMessage,
 } from "@/app/lib/ai/tutor";
 
-// Configuration constants
-const SUMMARIZE_PROBLEM_EVERY = 15; // Summarize current problem every 15 messages
-const ANALYZE_PATTERNS_AFTER_PROBLEM = 25; // Refine patterns after 25 messages (long problem)
-const RECENT_MESSAGES_COUNT = 6; // Keep last 6 messages in context
+// ============================================================================
+// CONFIGURATION
+// ============================================================================
+const CONFIG = {
+  summarizeProblemEvery: 15,
+  refinePatternsThreshold: 25,
+  recentMessagesCount: 6,
+  minMessagesForSummary: 5,
+} as const;
 
-/**
- * Detects if this is a new problem based on:
- * 1. Explicit flag from frontend (student clicked "New Problem" button)
- * 2. Keywords in last message suggesting new problem
- */
+// ============================================================================
+// TYPES
+// ============================================================================
+interface SessionDoc {
+  _id: mongoose.Types.ObjectId;
+  messages: ChatMessage[];
+  currentProblemSummary: string;
+  learningPatterns: string;
+  currentProblemStartIndex: number;
+  lastProblemSummarizedIndex: number;
+  lastPatternsAnalyzedIndex: number;
+  patternsVersion: number;
+}
+
+interface SummarizationContext {
+  session: SessionDoc;
+  messages: ChatMessage[];
+  topicName: string;
+  totalMessages: number;
+}
+
+// ============================================================================
+// HELPERS
+// ============================================================================
+
+const updateSession = (
+  sessionId: mongoose.Types.ObjectId,
+  sets: Record<string, unknown>,
+  incs?: Record<string, number>,
+) =>
+  ChatSession.updateOne(
+    { _id: sessionId },
+    { $set: sets, ...(incs && { $inc: incs }) },
+  );
+
 function detectNewProblem(
   messages: ChatMessage[],
-  explicitFlag: boolean
+  explicitFlag: boolean,
 ): boolean {
-  // Explicit flag takes precedence
   if (explicitFlag) return true;
-
-  // Check last user message for new problem indicators
   if (messages.length < 2) return false;
 
-  const lastUserMessage = messages
-    .slice()
-    .reverse()
-    .find((m) => m.role === "user");
+  const lastUserMsg = [...messages].reverse().find((m) => m.role === "user");
+  if (!lastUserMsg) return false;
 
-  if (!lastUserMessage) return false;
-
-  const content = lastUserMessage.content.toLowerCase();
-  const newProblemKeywords = [
+  const content = lastUserMsg.content.toLowerCase();
+  const keywords = [
     "new problem",
     "next problem",
     "different problem",
@@ -51,36 +79,204 @@ function detectNewProblem(
     "moving on to",
   ];
 
-  return newProblemKeywords.some((keyword) => content.includes(keyword));
+  return keywords.some((kw) => content.includes(kw));
 }
+
+function getMessageSlice(
+  messages: ChatMessage[],
+  start: number,
+  end: number,
+  minLength = CONFIG.minMessagesForSummary,
+): ChatMessage[] | null {
+  const slice = messages.slice(start, end);
+  return slice.length >= minLength ? slice : null;
+}
+
+// ============================================================================
+// SUMMARIZATION LOGIC
+// ============================================================================
+
+async function handleNewProblem(
+  ctx: SummarizationContext,
+): Promise<{ patterns: string; summary: string }> {
+  const { session, messages, topicName, totalMessages } = ctx;
+
+  const completedMessages = getMessageSlice(
+    messages,
+    session.currentProblemStartIndex,
+    totalMessages,
+  );
+
+  if (!completedMessages) {
+    await updateSession(session._id, {
+      currentProblemSummary: "",
+      currentProblemStartIndex: totalMessages,
+      lastProblemSummarizedIndex: totalMessages,
+      lastPatternsAnalyzedIndex: totalMessages,
+    });
+    return { patterns: session.learningPatterns, summary: "" };
+  }
+
+  const refinedPatterns = await refineLearningPatternSummary(
+    completedMessages,
+    session.learningPatterns || null,
+    topicName,
+  );
+
+  await updateSession(
+    session._id,
+    {
+      learningPatterns: refinedPatterns,
+      currentProblemSummary: "",
+      currentProblemStartIndex: totalMessages,
+      lastProblemSummarizedIndex: totalMessages,
+      lastPatternsAnalyzedIndex: totalMessages,
+    },
+    { problemsAttempted: 1, patternsVersion: 1 },
+  );
+
+  console.log("✅ New problem: patterns refined, tracking reset");
+  return { patterns: refinedPatterns, summary: "" };
+}
+
+async function maybeSummarizeProblem(
+  ctx: SummarizationContext,
+  currentSummary: string,
+): Promise<string> {
+  const { session, messages, topicName, totalMessages } = ctx;
+
+  const messagesSinceLastSummary =
+    totalMessages - session.lastProblemSummarizedIndex;
+
+  if (messagesSinceLastSummary < CONFIG.summarizeProblemEvery) {
+    return currentSummary;
+  }
+
+  const endIndex = totalMessages - CONFIG.recentMessagesCount;
+  const slice = getMessageSlice(
+    messages,
+    session.currentProblemStartIndex,
+    endIndex,
+  );
+
+  if (!slice) return currentSummary;
+
+  const summary = await generateProblemProgressSummary(slice, topicName);
+
+  await updateSession(session._id, {
+    currentProblemSummary: summary,
+    lastProblemSummarizedIndex: endIndex,
+  });
+
+  console.log("✅ Problem progress summarized");
+  return summary;
+}
+
+async function maybeRefinePatternsMidProblem(
+  ctx: SummarizationContext,
+  currentPatterns: string,
+): Promise<string> {
+  const { session, messages, topicName, totalMessages } = ctx;
+
+  const messagesInProblem = totalMessages - session.currentProblemStartIndex;
+  const messagesSinceLastAnalysis =
+    totalMessages - session.lastPatternsAnalyzedIndex;
+
+  if (
+    messagesInProblem < CONFIG.refinePatternsThreshold ||
+    messagesSinceLastAnalysis < CONFIG.refinePatternsThreshold
+  ) {
+    return currentPatterns;
+  }
+
+  const endIndex = totalMessages - CONFIG.recentMessagesCount;
+  const slice = getMessageSlice(
+    messages,
+    session.lastPatternsAnalyzedIndex,
+    endIndex,
+  );
+
+  if (!slice) return currentPatterns;
+
+  console.log(
+    `🔄 Long problem (${messagesInProblem} msgs), refining patterns mid-problem`,
+  );
+
+  const refined = await refineLearningPatternSummary(
+    slice,
+    session.learningPatterns || null,
+    topicName,
+  );
+
+  await updateSession(
+    session._id,
+    { learningPatterns: refined, lastPatternsAnalyzedIndex: endIndex },
+    { patternsVersion: 1 },
+  );
+
+  console.log(`✅ Patterns refined (v${session.patternsVersion + 1})`);
+  return refined;
+}
+
+// ============================================================================
+// GET: Load existing chat session
+// ============================================================================
+
+export async function GET(
+  req: Request,
+  { params }: { params: Promise<{ tid: string }> },
+) {
+  try {
+    await connectToDb();
+
+    const userId = await getUserIdFromRequest();
+    if (!userId || !mongoose.Types.ObjectId.isValid(userId)) {
+      return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
+    }
+
+    const { tid } = await params;
+    if (!mongoose.Types.ObjectId.isValid(tid)) {
+      return NextResponse.json({ error: "Invalid topic id" }, { status: 400 });
+    }
+
+    const session = await ChatSession.findOne({
+      userId: new mongoose.Types.ObjectId(userId),
+      topicId: new mongoose.Types.ObjectId(tid),
+    }).lean();
+
+    return NextResponse.json({
+      messages: session?.messages || [],
+    });
+  } catch (err) {
+    console.error("❌ Error loading chat session:", err);
+    return NextResponse.json(
+      { error: "Failed to load chat session" },
+      { status: 500 },
+    );
+  }
+}
+
+// ============================================================================
+// POST: Send message and get AI reply
+// ============================================================================
 
 export async function POST(
   req: Request,
-  { params }: { params: Promise<{ tid: string }> }
+  { params }: { params: Promise<{ tid: string }> },
 ) {
   try {
-    // Connect to database
     await connectToDb();
 
-    // ==========================================
-    // 1) USER AUTHENTICATION (AUTOMATIC)
-    // ==========================================
+    // 1) Authentication
     const userId = await getUserIdFromRequest();
-
-    if (!userId) {
+    if (!userId || !mongoose.Types.ObjectId.isValid(userId)) {
       return NextResponse.json(
         { error: "Not authenticated. Please log in." },
-        { status: 401 }
+        { status: 401 },
       );
     }
 
-    if (!mongoose.Types.ObjectId.isValid(userId)) {
-      return NextResponse.json({ error: "Invalid user ID" }, { status: 401 });
-    }
-
-    // ==========================================
-    // 2) TOPIC VALIDATION
-    // ==========================================
+    // 2) Topic validation
     const { tid } = await params;
     if (!mongoose.Types.ObjectId.isValid(tid)) {
       return NextResponse.json({ error: "Invalid topic id" }, { status: 400 });
@@ -91,9 +287,7 @@ export async function POST(
       return NextResponse.json({ error: "Topic not found" }, { status: 404 });
     }
 
-    // ==========================================
-    // 3) GET OR CREATE CHAT SESSION
-    // ==========================================
+    // 3) Get or create session
     let session = await ChatSession.findOne({
       userId: new mongoose.Types.ObjectId(userId),
       topicId: new mongoose.Types.ObjectId(tid),
@@ -114,165 +308,56 @@ export async function POST(
       });
     }
 
-    // ==========================================
-    // 4) PARSE REQUEST BODY
-    // ==========================================
+    // 4) Parse request - now only expects the new user message
     const body = await req.json();
-    const messages = body?.messages;
-    const explicitNewProblemFlag = body?.isNewProblem || false;
+    const userMessage: string = body?.message;
+    const explicitNewProblem = body?.isNewProblem || false;
 
-    if (!Array.isArray(messages)) {
-      return NextResponse.json({ error: "Invalid messages" }, { status: 400 });
+    if (!userMessage || typeof userMessage !== "string") {
+      return NextResponse.json({ error: "Invalid message" }, { status: 400 });
     }
 
-    const totalMessages = messages.length;
-    let currentProblemSummary = session.currentProblemSummary || "";
-    let learningPatterns = session.learningPatterns || "";
+    // 5) Build full message history from DB + new message
+    const existingMessages: ChatMessage[] = session.messages || [];
+    const newUserMsg: ChatMessage = { role: "user", content: userMessage };
+    const allMessages = [...existingMessages, newUserMsg];
 
-    // ==========================================
-    // 5) DETECT NEW PROBLEM (AUTO + MANUAL)
-    // ==========================================
-    const isNewProblem = detectNewProblem(messages, explicitNewProblemFlag);
+    // 6) Build summarization context
+    const ctx: SummarizationContext = {
+      session,
+      messages: allMessages,
+      topicName: topic.name,
+      totalMessages: allMessages.length,
+    };
+
+    // 7) Process context updates
+    let { currentProblemSummary, learningPatterns } = session;
+    const isNewProblem = detectNewProblem(allMessages, explicitNewProblem);
 
     if (isNewProblem) {
-      // Get messages from the completed problem
-      const completedProblemMessages = messages.slice(
-        session.currentProblemStartIndex,
-        totalMessages
+      const result = await handleNewProblem(ctx);
+      learningPatterns = result.patterns;
+      currentProblemSummary = result.summary;
+      ctx.session.currentProblemStartIndex = ctx.totalMessages;
+    } else {
+      currentProblemSummary = await maybeSummarizeProblem(
+        ctx,
+        currentProblemSummary || "",
       );
-
-      // Only refine if there's enough conversation
-      if (completedProblemMessages.length > 5) {
-        // ITERATIVELY REFINE: Previous pattern + new problem messages
-        const refinedPattern = await refineLearningPatternSummary(
-          completedProblemMessages,
-          session.learningPatterns || null,
-          topic.name
-        );
-
-        learningPatterns = refinedPattern;
-
-        // Update session with refined pattern and reset problem tracking
-        await ChatSession.updateOne(
-          { _id: session._id },
-          {
-            $set: {
-              learningPatterns: refinedPattern,
-              currentProblemSummary: "", // Reset problem summary
-              currentProblemStartIndex: totalMessages, // New problem starts here
-              lastProblemSummarizedIndex: totalMessages,
-              lastPatternsAnalyzedIndex: totalMessages,
-            },
-            $inc: {
-              problemsAttempted: 1,
-              patternsVersion: 1, // Track how many times refined
-            },
-          }
-        );
-      }
-
-      // Reset problem-level variables
-      currentProblemSummary = "";
-      session.currentProblemStartIndex = totalMessages;
+      learningPatterns = await maybeRefinePatternsMidProblem(
+        ctx,
+        learningPatterns || "",
+      );
     }
 
-    // ==========================================
-    // 6) TIER 1: SUMMARIZE CURRENT PROBLEM PROGRESS
-    // ==========================================
-    const messagesInCurrentProblem =
-      totalMessages - session.currentProblemStartIndex;
-    const messagesSinceLastProblemSummary =
-      totalMessages - session.lastProblemSummarizedIndex;
-
-    if (messagesSinceLastProblemSummary >= SUMMARIZE_PROBLEM_EVERY) {
-      // Get messages to summarize (exclude very recent ones)
-      const messagesToSummarize = messages.slice(
-        session.currentProblemStartIndex,
-        -RECENT_MESSAGES_COUNT
-      );
-
-      if (messagesToSummarize.length > 0) {
-        const progressSummary = await generateProblemProgressSummary(
-          messagesToSummarize,
-          topic.name
-        );
-
-        currentProblemSummary = progressSummary;
-
-        await ChatSession.updateOne(
-          { _id: session._id },
-          {
-            $set: {
-              currentProblemSummary: currentProblemSummary,
-              lastProblemSummarizedIndex: totalMessages - RECENT_MESSAGES_COUNT,
-            },
-          }
-        );
-
-        console.log(`✅ Problem progress summarized`);
-      }
-    }
-
-    // ==========================================
-    // 7) TIER 2: REFINE PATTERNS FOR LONG PROBLEMS
-    // ==========================================
-    if (
-      messagesInCurrentProblem >= ANALYZE_PATTERNS_AFTER_PROBLEM &&
-      totalMessages - session.lastPatternsAnalyzedIndex >=
-        ANALYZE_PATTERNS_AFTER_PROBLEM
-    ) {
-      console.log(
-        `🔄 Long problem detected (${messagesInCurrentProblem} messages), refining patterns mid-problem`
-      );
-
-      const messagesToAnalyze = messages.slice(
-        session.lastPatternsAnalyzedIndex,
-        -RECENT_MESSAGES_COUNT
-      );
-
-      if (messagesToAnalyze.length > 5) {
-        const refinedPattern = await refineLearningPatternSummary(
-          messagesToAnalyze,
-          session.learningPatterns || null,
-          topic.name
-        );
-
-        learningPatterns = refinedPattern;
-
-        await ChatSession.updateOne(
-          { _id: session._id },
-          {
-            $set: {
-              learningPatterns: refinedPattern,
-              lastPatternsAnalyzedIndex: totalMessages - RECENT_MESSAGES_COUNT,
-            },
-            $inc: { patternsVersion: 1 },
-          }
-        );
-
-        console.log(
-          `✅ Patterns refined mid-problem (version ${
-            session.patternsVersion + 1
-          })`
-        );
-      }
-    }
-
-    // ==========================================
-    // 8) GENERATE AI REPLY
-    // ==========================================
-    console.log(`🤖 Generating reply with:`);
-    console.log(`   - Topic: ${topic.name}`);
-    console.log(`   - Steps: ${topic.steps?.length || 0}`);
-    console.log(`   - Key Points: ${topic.keyPoints?.length || 0}`);
-    console.log(`   - Common Mistakes: ${topic.commonMistakes?.length || 0}`);
+    // 8) Generate reply
+    console.log(`🤖 Generating reply for ${topic.name}`);
     console.log(
-      `   - Problem Summary: ${currentProblemSummary ? "Yes" : "No"}`
-    );
-    console.log(
-      `   - Learning Patterns: ${
-        learningPatterns ? `Yes (v${session.patternsVersion})` : "No"
-      }`
+      `   Context: ${currentProblemSummary ? "problem summary" : "none"}, ${
+        learningPatterns
+          ? `patterns v${session.patternsVersion}`
+          : "no patterns"
+      }`,
     );
 
     const reply = await generateTutorReply({
@@ -280,12 +365,26 @@ export async function POST(
       steps: topic.steps,
       keyPoints: topic.keyPoints,
       commonMistakes: topic.commonMistakes,
-      messages: messages,
-      currentProblemSummary: currentProblemSummary,
-      learningPatterns: learningPatterns,
+      messages: allMessages,
+      currentProblemSummary: currentProblemSummary || undefined,
+      learningPatterns: learningPatterns || undefined,
     });
 
-    console.log(`✅ Reply generated successfully`);
+    // 9) Store both messages in database
+    const assistantMsg: ChatMessage = { role: "assistant", content: reply };
+
+    await ChatSession.updateOne(
+      { _id: session._id },
+      {
+        $push: {
+          messages: {
+            $each: [newUserMsg, assistantMsg],
+          },
+        },
+      },
+    );
+
+    console.log(`✅ Messages stored (total: ${allMessages.length + 1})`);
 
     return NextResponse.json({ reply });
   } catch (err) {
@@ -295,7 +394,7 @@ export async function POST(
         error: "Failed to chat",
         details: err instanceof Error ? err.message : String(err),
       },
-      { status: 500 }
+      { status: 500 },
     );
   }
 }
